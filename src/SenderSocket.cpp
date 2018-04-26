@@ -31,7 +31,6 @@ void Timer::startTimer(double fsecs) {
 }
 
 
-
 SenderSocket::SenderSocket() {
 
 	seq    = 0;
@@ -75,30 +74,30 @@ void SenderSocket::Start() {
 			    // if (pthread_setschedparam(this_thread, SCHED_FIFO, &params) != 0) {
 			    //      printf("Unsuccessful in setting thread realtime prio\n");
 			    // }
-    				int nxtSend = 0;
+    			int nxtSend = 0;
  				fd_set fd;
 				int ret = 0;
 
-    				while (!this->isShuttleDown) {
+				while (!this->isShuttleDown) {
 
-    					this->full.wait();
-					    FD_ZERO (&fd);
-					    FD_SET (this->sockt, &fd);
-					    timeval tp = {(int)this->RTO, (int)((this->RTO - int(this->RTO)) * 1000000)};
-					    ret = select(this->sockt + 1, 0, &fd, NULL, &tp);
+					this->full.wait();
+				    FD_ZERO (&fd);
+				    FD_SET (this->sockt, &fd);
+				    timeval tp = {(int)this->RTO, (int)((this->RTO - int(this->RTO)) * 1000000)};
+				    ret = select(this->sockt + 1, 0, &fd, NULL, &tp);
 
-					    Packet& pkt = this->boundedBuffer[nxtSend % this->W];
-					    pkt.time    = std::chrono::high_resolution_clock::now();
-	if (debug)
-						printf("trasmit %u with  %u /50\n", nxtSend, 0);
-					   	sendto(sockt, pkt.buff, pkt.len, 0, (struct sockaddr*)&this->remote, sizeof(this->remote));
-				 	    if (!this->hasStarted) {
-							this->hasStarted = true;
-								this->pendingData.release(1);
+				    Packet& pkt = this->boundedBuffer[nxtSend % this->W];
+				    pkt.time    = std::chrono::high_resolution_clock::now();
+                       if (debug)
+					printf("trasmit %u with  %u /50\n", nxtSend, 0);
+				   	sendto(sockt, pkt.buff, pkt.len, 0, (struct sockaddr*)&this->remote, sizeof(this->remote));
+			 	    if (!this->hasStarted) {
+						this->hasStarted = true;
+							this->pendingData.release(1);
 
-				        	}
-	   	nxtSend++;
-				   }
+			        }
+	   	           nxtSend++;
+				}
     });
     // pthread_getschedparam(pthread_self(), &policy, &sch);
 
@@ -124,12 +123,14 @@ SenderSocket::~SenderSocket() {
 	// if (!sem) {
 	// 	delete sem;
 	// }
+    End();
 	if (!boundedBuffer) {
 		delete[] boundedBuffer;
 	}
 	if (!buff) {
 		delete[] buff;
 	}
+
 }
 
 unsigned short SenderSocket::Open(char* host, int _port, int _senderWindow, LinkProperties* lp) {
@@ -169,7 +170,10 @@ unsigned short SenderSocket::Open(char* host, int _port, int _senderWindow, Link
         return TIMEOUT;
     }
 
+    //set the timer event, add timer event
     ptimer = new Timer(epollfd);
+
+    //set the socket event, add socket event to event list
     epoll_event event;
     event.events = EPOLLIN;
     event.data.fd = sockt;
@@ -273,7 +277,7 @@ unsigned short SenderSocket::Open(char* host, int _port, int _senderWindow, Link
 }
 
 unsigned short SenderSocket::Send(char* str, unsigned int size)  {
-
+    // producer- consumer mode
     sem.wait();
 
     // char* buff = new char[MAX_PKT_SIZE];
@@ -448,132 +452,133 @@ void SenderSocket::Worker() {
             // FD_SET (sockt, &fd);
 
             // ret = select(sockt + 1, &fd, NULL, NULL, &tp);
+            //poll the event with timeout or socket read
              int r = epoll_wait(this->epollfd, events, events_size, -1);
 
             for (int i = 0; i < r; ++i) {
 
-                    if (events[i].data.fd == this->ptimer->getFd()) { // timeout event
-                            // remove the timeout event
-                            size_t s;
-                            read(ptimer->getFd(), &s, sizeof(s));
+                if (events[i].data.fd == this->ptimer->getFd()) // timeout event
+                { 
+                    // remove the timeout event
+                    size_t s;
+                    read(ptimer->getFd(), &s, sizeof(s));
 
-                            //resent the send base packet
-                            Packet& pkt = boundedBuffer[sndBase % W];
-                            pkt.rtx = true;
-			    if (debug)
-			    printf("Timeout Retrasmit seq number %u with %u / 50\n", sndBase,  rtx);		   
-                            if (isShuttleDown) {
-				//printf("shutdown called\n");
-				int diff = seq - sndBase;
-				 for (int i = 0; i <  diff; i++) {
-				  Packet& pkt = boundedBuffer[(sndBase+i) % W];
- 				  pkt.rtx = true;
-			   	  sendto(sockt, pkt.buff, pkt.len, 0, (struct sockaddr*)&remote, sizeof(remote));
-				}
-                            } else {
-				    sendto(sockt, pkt.buff, pkt.len, 0, (struct sockaddr*)&remote, sizeof(remote));
-		
-			    }
-			    this->ptimer->startTimer(RTO);
-                            // printf("the sequence in timeout is %u\n", pkt.seq);
-                            // count++;
-                            numtime++;
-                            rtx++;
+                    //resent the send base packet
+                    Packet& pkt = boundedBuffer[sndBase % W];
+                    pkt.rtx = true;
+    			    if (debug)
+    			    printf("Timeout Retrasmit seq number %u with %u / 50\n", sndBase,  rtx);		   
+                    if (isShuttleDown) { // closing is called, resend all unackowledge packets, avoid hangind packet in buffer
+        				//printf("shutdown called\n");
+        				int diff = seq - sndBase;
+        				 for (int i = 0; i <  diff; i++) {
+        				  Packet& pkt = boundedBuffer[(sndBase+i) % W];
+         				  pkt.rtx = true;
+        			   	  sendto(sockt, pkt.buff, pkt.len, 0, (struct sockaddr*)&remote, sizeof(remote));
+        				}
+                     } else {
+                        sendto(sockt, pkt.buff, pkt.len, 0, (struct sockaddr*)&remote, sizeof(remote));
+    			    }
+    			    this->ptimer->startTimer(RTO);
+                                // printf("the sequence in timeout is %u\n", pkt.seq);
+                                // count++;
+                    numtime++;
+                    rtx++;
 
-                    } else {
+                } else { // socket has data
 
+                    socklen_t size = sizeof(remote);
+                    if((ret = recvfrom(sockt, rcvbuf, sizeof(ReceiveHeader), 0, (struct sockaddr*)&remote, &size)) < 0) {
+                        printf("Received error in worker thread\n");
+                    }
+                    auto rcvTime = std::chrono::high_resolution_clock::now();
+                    rh = (ReceiveHeader*) rcvbuf;
 
-                                socklen_t size = sizeof(remote);
-                                if((ret = recvfrom(sockt, rcvbuf, sizeof(ReceiveHeader), 0, (struct sockaddr*)&remote, &size)) < 0) {
-                                    printf("Received error in worker thread\n");
-                                }
-                                auto rcvTime = std::chrono::high_resolution_clock::now();
-                                rh = (ReceiveHeader*) rcvbuf;
+                    if (rh->flags.FIN == 1) {
+                        printf("Closing now\n");
+                        break;
+                    }
+	                if (debug)
+                          printf("Ack seq is %u\n", rh->ackSeq);
 
-                                if (rh->flags.FIN == 1) {
-                                    printf("Closing now\n");
-                                    break;
-                                }
-				if (debug)
-                                printf("Ack seq is %u\n", rh->ackSeq);
-                                unsigned int R = rh->recvWnd;
-                                lastAck = rh->ackSeq;
-                                if (rh->ackSeq > sndBase) {
+                    unsigned int R = rh->recvWnd;
+                    lastAck = rh->ackSeq;
+                    if (rh->ackSeq > sndBase) { //regular packet received
 
-                                    int diff = rh->ackSeq - sndBase;
-                                    // for (int i = 0; i < diff; i++) {
+                        int diff = rh->ackSeq - sndBase;
+                        // for (int i = 0; i < diff; i++) {
 
-                                    //  Packet packet = boundedBuffer[(sndBase + i) % W];
-                                    //  // Packet packet = boundedBuffer.front();
-                                    //     // boundedBuffer.pop();
-                                    //     //not the retransmit case
-                                    // }
-                                    bool hasrtx = false;
-                                    for (int i = 0; i < diff; i++) {
-                                        Packet& packet = boundedBuffer[(sndBase+i) % W];
-                                        if (packet.rtx) {
-                                            hasrtx = true;
-                                        }
-                                    }
+                        //  Packet packet = boundedBuffer[(sndBase + i) % W];
+                        //  // Packet packet = boundedBuffer.front();
+                        //     // boundedBuffer.pop();
+                        //     //not the retransmit case
+                        // }
+                        bool hasrtx = false;
+                        for (int i = 0; i < diff; i++) {
+                            Packet& packet = boundedBuffer[(sndBase+i) % W];
+                            if (packet.rtx) {
+                                hasrtx = true;
+                            }
+                        }
 
-                                    sndBase = rh->ackSeq;
-                                    
-                                    if (!hasrtx) {
-                                            Packet& packet = boundedBuffer[(sndBase-1) % W];
-                                            double sampledRTT = time.getTime(packet.time, rcvTime);
-                                            // printf("sampledRTT %f\n", sampledRTT);
-                                            estRTT = (1 - alpha) * estRTT + alpha * sampledRTT;
-                                            devRTT = (1 - beta) * devRTT + beta * abs(sampledRTT - estRTT);
-                                            RTO = estRTT + 4 * max(devRTT, 0.010);
-                                            tp = {(int)RTO, (int)((RTO - int(RTO)) * 1000000)};
-                                    }
-                                    effectiveWindow = min(W, R);
-                                    // sndBase = rh->ackSeq;
-                                    int newReleased = sndBase + effectiveWindow - lastReleased;
-                                    if (newReleased < 0) {
-                                        printf("newrelased is less than 0\n");
-                                    } 
-                                    size_t s;
-                                    read(ptimer->getFd(), &s, sizeof(s));
-                                    this->ptimer->startTimer(RTO);
+                        sndBase = rh->ackSeq;
+                        
+                        if (!hasrtx) {
+                                Packet& packet = boundedBuffer[(sndBase-1) % W];
+                                double sampledRTT = time.getTime(packet.time, rcvTime);
+                                // printf("sampledRTT %f\n", sampledRTT);
+                                estRTT = (1 - alpha) * estRTT + alpha * sampledRTT;
+                                devRTT = (1 - beta) * devRTT + beta * abs(sampledRTT - estRTT);
+                                RTO = estRTT + 4 * max(devRTT, 0.010);
+                                tp = {(int)RTO, (int)((RTO - int(RTO)) * 1000000)};
+                        }
+                        effectiveWindow = min(W, R);
+                        // sndBase = rh->ackSeq;
+                        int newReleased = sndBase + effectiveWindow - lastReleased;
+                        if (newReleased < 0) {
+                            printf("newrelased is less than 0\n");
+                        } 
+                        size_t s;
+                        read(ptimer->getFd(), &s, sizeof(s));
+                        this->ptimer->startTimer(RTO);
 
-                                    this->sem.release(newReleased);
-                                    lastReleased += newReleased;
-                                    nReleased = newReleased;
-                                    dupAck = 0;
-                                    rtx    = 0;
+                        this->sem.release(newReleased);
+                        lastReleased += newReleased;
+                        nReleased = newReleased;
+                        dupAck = 0;
+                        rtx    = 0;
 
-                                } else if (rh->ackSeq == sndBase ) {
+                    } else if (rh->ackSeq == sndBase ) { // loss of packet case
 
-                                        ++dupAck;
+                            ++dupAck;
 
-                                        if (rtx > 50) {
-                                            printf("Maximum Attempt Reached\n");
-                                            break;
-                                        }
+                            if (rtx > 50) {
+                                printf("Maximum Attempt Reached\n");
+                                break;
+                            }
 
-                                        if (dupAck == 3) {
-                                            //retransmite after 3 times 
-                                            // Packet pkt = boundedBuffer.front();
-                                            Packet& pkt = boundedBuffer[sndBase % W];
-                                            pkt.rtx = true;
-					   if (debug)
-					    printf("Fast Retrasmit seq number %u with  %u / 50\n", sndBase, rtx);
-                                            sendto(sockt, pkt.buff, pkt.len, 0, (struct sockaddr*)&remote, sizeof(remote));
-                                            fastrtx++;
-                                            rtx++;
-                                            size_t s;
-                                            read(ptimer->getFd(), &s, sizeof(s));
-                                            this->ptimer->startTimer(RTO);
-                                        }
+                            if (dupAck == 3) {
+                                //retransmite after 3 times 
+                                // Packet pkt = boundedBuffer.front();
+                                Packet& pkt = boundedBuffer[sndBase % W];
+                                pkt.rtx = true;
+		                       if (debug)
+		                            printf("Fast Retrasmit seq number %u with  %u / 50\n", sndBase, rtx);
+                                sendto(sockt, pkt.buff, pkt.len, 0, (struct sockaddr*)&remote, sizeof(remote));
+                                fastrtx++;
+                                rtx++;
+                                size_t s;
+                                read(ptimer->getFd(), &s, sizeof(s));
+                                this->ptimer->startTimer(RTO);
+                            }
 
-                                } 
-
+                    } 
 
                 }
             }
 
     }
+    //notify the sta thread to close
     nopacket.notify_all();
 }
 
