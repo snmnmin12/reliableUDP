@@ -1,3 +1,6 @@
+/**
+By MSong
+**/
 #include "SenderSocket.h"
 #include <sys/ioctl.h>
 #include <fcntl.h>
@@ -89,11 +92,11 @@ void SenderSocket::Start() {
 	if (debug)
 						printf("trasmit %u with  %u /50\n", nxtSend, 0);
 					   	sendto(sockt, pkt.buff, pkt.len, 0, (struct sockaddr*)&this->remote, sizeof(this->remote));
-//				 	    if (!this->hasStarted) {
-//							this->hasStarted = true;
-//								this->pendingData.release(1);
-//
-//				        	}
+				 	    if (!this->hasStarted) {
+							this->hasStarted = true;
+								this->pendingData.release(1);
+
+				        	}
 	   	nxtSend++;
 				   }
     });
@@ -303,10 +306,10 @@ unsigned short SenderSocket::Send(char* str, unsigned int size)  {
         seq++;
         // cv.notify_all();
         full.release(1);
-        if (!hasStarted) {
-         	hasStarted = true;
-         	pendingData.release(1);
-    	}
+     //    if (!hasStarted) {
+     //     	hasStarted = true;
+     //     	pendingData.release(1);
+    	// }
         return STATUS_OK;
 
     // } else if (ret == 0) {

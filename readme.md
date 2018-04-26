@@ -1,0 +1,1 @@
+Follow instruction in the doc folder. Receiver is the windows executable file, simply change the extension to exe. Client side use make file.
